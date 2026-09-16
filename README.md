@@ -40,4 +40,8 @@ python3 scripts/build_words.py
 
 ## 线上
 
-GitHub Pages：推送本目录后启用 Pages 即可。
+已发布：**https://hongchen-muai.github.io/kaoyan-vocab-review/**
+
+仓库：https://github.com/Hongchen-muai/kaoyan-vocab-review
+
+进度保存在浏览器本地，换设备请先在设置页导出/导入进度 JSON。
