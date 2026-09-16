@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#173C38" />
+  <meta name="description" content="考研英语阅读词汇复习 · 遗忘曲线 · 不认识权重优先" />
+  <title>考研词汇复习</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23173C38'/%3E%3Ctext x='16' y='22' text-anchor='middle' font-size='16' fill='%23F7FBF9' font-family='serif'%3E词%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <div class="brand-title">考研词汇</div>
+            <div class="brand-sub" id="brandSub">阅读生词 · 间隔复习</div>
+          </div>
+        </div>
+        <div class="topbar-meta" id="topMeta"></div>
+      </div>
+    </header>
+
+    <main class="main" id="main">
+      <!-- 今日 -->
+      <section class="view active" id="view-home" data-view="home">
+        <div class="hero card">
+          <div class="hero-ring-wrap">
+            <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+              <circle class="ring-bg" cx="60" cy="60" r="52" />
+              <circle class="ring-fg" id="todayRing" cx="60" cy="60" r="52" />
+            </svg>
+            <div class="hero-ring-text">
+              <div class="hero-num" id="todayDone">0</div>
+              <div class="hero-label">今日已复习</div>
+            </div>
+          </div>
+          <div class="hero-stats">
+            <div class="stat">
+              <div class="stat-num" id="dueCount">0</div>
+              <div class="stat-label">待复习</div>
+            </div>
+            <div class="stat">
+              <div class="stat-num" id="newCount">0</div>
+              <div class="stat-label">今日新词</div>
+            </div>
+            <div class="stat">
+              <div class="stat-num" id="totalWords">0</div>
+              <div class="stat-label">词库总量</div>
+            </div>
+          </div>
+          <button class="btn primary block" id="btnStartReview" type="button">开始复习</button>
+          <p class="hero-hint" id="homeHint"></p>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>高频未掌握</h2>
+            <button class="link" type="button" data-goto="library">全部词库</button>
+          </div>
+          <ol class="hot-list" id="hotList"></ol>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>遗忘曲线</h2>
+            <span class="muted" id="curveCaption">记忆保持率预估</span>
+          </div>
+          <canvas id="curveHome" width="640" height="220" aria-label="遗忘曲线"></canvas>
+          <div class="curve-legend">
+            <span><i class="dot now"></i>当前状态</span>
+            <span><i class="dot after"></i>按计划复习后</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- 词库 -->
+      <section class="view" id="view-library" data-view="library">
+        <div class="toolbar card">
+          <input class="search" id="searchInput" type="search" placeholder="搜索单词 / 释义" autocomplete="off" />
+          <div class="chip-row" id="filterChips">
+            <button class="chip active" data-filter="all" type="button">全部</button>
+            <button class="chip" data-filter="hot" type="button">高频错</button>
+            <button class="chip" data-filter="learning" type="button">学习中</button>
+            <button class="chip" data-filter="mastered" type="button">已掌握</button>
+            <button class="chip" data-filter="new" type="button">未学</button>
+          </div>
+          <div class="sort-row">
+            <label for="sortSelect">排序</label>
+            <select id="sortSelect">
+              <option value="unknown">不认识次数（多→少）</option>
+              <option value="unknown-asc">不认识次数（少→多）</option>
+              <option value="alpha">字母 A→Z</option>
+              <option value="recent">最近复习</option>
+            </select>
+          </div>
+        </div>
+        <div class="word-list card" id="wordList"></div>
+      </section>
+
+      <!-- 统计 -->
+      <section class="view" id="view-stats" data-view="stats">
+        <div class="card">
+          <div class="card-head">
+            <h2>掌握分布</h2>
+          </div>
+          <div class="dist-bar" id="distBar"></div>
+          <div class="dist-legend" id="distLegend"></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h2>未来 14 天到期</h2>
+            <span class="muted">按遗忘曲线安排</span>
+          </div>
+          <canvas id="dueForecast" width="640" height="200" aria-label="到期预测"></canvas>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <h2>词源记录</h2>
+          </div>
+          <div class="source-list" id="sourceList"></div>
+        </div>
+      </section>
+
+      <!-- 设置 -->
+      <section class="view" id="view-settings" data-view="settings">
+        <div class="card">
+          <div class="card-head"><h2>每日计划</h2></div>
+          <label class="field">
+            <div class="field-top">
+              <span>每日新词上限</span>
+              <strong id="newLimitVal">20</strong>
+            </div>
+            <input type="range" id="newLimit" min="5" max="80" step="5" value="20" />
+          </label>
+          <label class="field">
+            <div class="field-top">
+              <span>每日复习上限</span>
+              <strong id="reviewLimitVal">100</strong>
+            </div>
+            <input type="range" id="reviewLimit" min="20" max="300" step="10" value="100" />
+          </label>
+          <label class="field switch-field">
+            <span>自动发音</span>
+            <input type="checkbox" id="autoSpeak" checked />
+          </label>
+          <label class="field">
+            <div class="field-top">
+              <span>语速</span>
+              <strong id="rateVal">0.9×</strong>
+            </div>
+            <input type="range" id="speakRate" min="0.6" max="1.4" step="0.1" value="0.9" />
+          </label>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>导入单词</h2></div>
+          <p class="muted small">新文档中的词会自动进入词库；每次出现记 1 次阅读「不认识」。已掌握的词若在新文档再次出现，将继承全部历史不认识权重并优先复习。</p>
+          <div class="btn-row">
+            <label class="btn secondary file-btn">
+              导入 CSV
+              <input type="file" id="importCsv" accept=".csv,text/csv" multiple hidden />
+            </label>
+            <label class="btn secondary file-btn">
+              导入 PDF
+              <input type="file" id="importPdf" accept=".pdf,application/pdf" multiple hidden />
+            </label>
+          </div>
+          <label class="field">
+            <span>或粘贴单词表（每行：单词 词性 释义）</span>
+            <textarea id="pasteBox" rows="4" placeholder="abandon v. 放弃；抛弃"></textarea>
+          </label>
+          <button class="btn secondary block" id="btnPasteImport" type="button">从文本导入</button>
+          <div class="import-log" id="importLog"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>数据</h2></div>
+          <div class="btn-row">
+            <button class="btn secondary" id="btnExport" type="button">导出进度</button>
+            <label class="btn secondary file-btn">
+              导入进度
+              <input type="file" id="importProgress" accept=".json,application/json" hidden />
+            </label>
+            <button class="btn danger" id="btnReset" type="button">重置进度</button>
+          </div>
+          <p class="muted small">进度保存在本机浏览器。导出备份后可换设备恢复。</p>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>关于</h2></div>
+          <p class="muted small" id="aboutText"></p>
+        </div>
+      </section>
+    </main>
+
+    <nav class="tabbar" id="tabbar">
+      <button class="tab active" data-tab="home" type="button">
+        <span class="tab-icon">今</span><span>今日</span>
+      </button>
+      <button class="tab" data-tab="library" type="button">
+        <span class="tab-icon">词</span><span>词库</span>
+      </button>
+      <button class="tab" data-tab="stats" type="button">
+        <span class="tab-icon">统</span><span>统计</span>
+      </button>
+      <button class="tab" data-tab="settings" type="button">
+        <span class="tab-icon">设</span><span>设置</span>
+      </button>
+    </nav>
+
+    <!-- 复习会话 -->
+    <div class="session hidden" id="session" role="dialog" aria-modal="true" aria-label="复习">
+      <div class="session-top">
+        <button class="icon-btn" id="btnCloseSession" type="button" aria-label="退出复习">×</button>
+        <div class="session-progress">
+          <div class="session-progress-bar" id="sessionBar"></div>
+        </div>
+        <div class="session-count" id="sessionCount">0/0</div>
+      </div>
+      <div class="session-body">
+        <div class="priority-badge hidden" id="priorityBadge">高频重点</div>
+        <div class="word-card" id="wordCard">
+          <button class="speak-btn" id="btnSpeak" type="button" aria-label="发音">♪</button>
+          <h1 class="word-main" id="cardWord">—</h1>
+          <div class="word-forms" id="cardForms"></div>
+          <button class="reveal-hint" id="btnReveal" type="button">点击查看释义</button>
+          <div class="word-back hidden" id="cardBack">
+            <div class="word-pos" id="cardPos"></div>
+            <div class="word-meaning" id="cardMeaning"></div>
+            <div class="word-note" id="cardNote"></div>
+            <div class="word-sources" id="cardSources"></div>
+            <div class="word-meta" id="cardMeta"></div>
+          </div>
+        </div>
+        <div class="grade-row" id="gradeRow">
+          <button class="grade again" id="btnAgain" type="button">不认识</button>
+          <button class="grade hard" id="btnHard" type="button" disabled>模糊</button>
+          <button class="grade good" id="btnGood" type="button" disabled>认识</button>
+        </div>
+      </div>
+      <div class="session-done hidden" id="sessionDone">
+        <div class="done-icon">✓</div>
+        <h2>本轮完成</h2>
+        <p id="doneSummary"></p>
+        <button class="btn primary" id="btnDoneBack" type="button">返回今日</button>
+      </div>
+    </div>
+
+    <div class="toast hidden" id="toast" role="status"></div>
+  </div>
+
+  <script src="js/lemma.js"></script>
+  <script src="js/tts.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/charts.js"></script>
+  <script src="js/import.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
