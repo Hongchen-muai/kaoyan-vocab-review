@@ -238,9 +238,14 @@
         </div>
         <div class="grade-row" id="gradeRow">
           <button class="grade again" id="btnAgain" type="button">不认识</button>
-          <button class="grade hard" id="btnHard" type="button" disabled>模糊</button>
-          <button class="grade good" id="btnGood" type="button" disabled>认识</button>
+          <button class="grade hard" id="btnHard" type="button">模糊</button>
+          <button class="grade good" id="btnGood" type="button">认识</button>
         </div>
+        <div class="grade-row confirm-row hidden" id="confirmRow">
+          <button class="grade again" id="btnDowngrade" type="button">改判不认识</button>
+          <button class="grade good" id="btnConfirm" type="button">继续</button>
+        </div>
+        <p class="session-tip" id="sessionTip">可直接作答，再核对释义；答错可改判</p>
       </div>
       <div class="session-done hidden" id="sessionDone">
         <div class="done-icon">✓</div>

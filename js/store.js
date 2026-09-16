@@ -195,7 +195,7 @@
   function stats() {
     const items = listWords();
     const today = todayKey();
-    const ds = state.dailyStats[today] || { new: 0, review: 0, known: 0, unknown: 0 };
+    const ds = state.dailyStats[today] || { new: 0, review: 0, known: 0, unknown: 0, completed: 0 };
     const due = items.filter((x) => x.due || x.status === "learning");
     const newWords = items.filter((x) => x.status === "new");
     const mastered = items.filter((x) => x.status === "mastered");
@@ -208,7 +208,8 @@
       mastered: mastered.length,
       learning: learning.length,
       hotCount: hot.length,
-      todayDone: (ds.new || 0) + (ds.review || 0),
+      // 今日完成 = 认识/模糊 的完成次数，不含「不认识」重练
+      todayDone: ds.completed || 0,
       todayStats: ds,
       items,
       hot,
@@ -254,28 +255,26 @@
 
   function bumpDaily(today, key, n = 1) {
     if (!state.dailyStats[today]) {
-      state.dailyStats[today] = { new: 0, review: 0, known: 0, unknown: 0 };
+      state.dailyStats[today] = { new: 0, review: 0, known: 0, unknown: 0, completed: 0 };
     }
     state.dailyStats[today][key] = (state.dailyStats[today][key] || 0) + n;
   }
 
   /**
    * 评分
-   * again: 不认识 — 继承/累加全部历史不认识权重，重置间隔
-   * hard: 模糊
-   * good: 认识
+   * again: 不认识 — 累加历史不认识权重，重置间隔；不计入「完成」
+   * hard: 模糊 — 完成本轮
+   * good: 认识 — 完成本轮
    */
   function grade(id, rating) {
     const p = ensureProgress(id);
     const today = todayKey();
-    const bankWord = allBankWords().find((w) => w.id === id);
     const isNew = p.reps === 0 && p.status === "new";
 
     if (p.reviewDay !== today) {
       p.reviewsToday = 0;
       p.reviewDay = today;
     }
-    p.reviewsToday += 1;
 
     if (rating === "again") {
       p.unknownCount += 1;
@@ -284,22 +283,25 @@
       p.interval = 0;
       p.reps = Math.max(1, p.reps);
       p.status = "learning";
-      // 10 分钟后再见（当天）
       p.due = today;
       p.lastReview = today;
+      p.reviewsToday += 1;
       bumpDaily(today, "unknown", 1);
+      // 新词只要被作答过就占用当日新词额度，避免一直引入新词
       if (isNew) bumpDaily(today, "new", 1);
-      else bumpDaily(today, "review", 1);
     } else if (rating === "hard") {
       p.ease = Math.max(1.3, p.ease - 0.15);
       p.interval = p.interval <= 0 ? 1 : Math.max(1, Math.round(p.interval * 1.2));
       p.reps += 1;
+      p.knownCount = (p.knownCount || 0) + 1;
       p.status = p.interval >= 21 ? "mastered" : p.interval >= 1 ? "review" : "learning";
       const due = new Date();
       due.setDate(due.getDate() + p.interval);
       p.due = todayKey(due);
       p.lastReview = today;
+      p.reviewsToday += 1;
       bumpDaily(today, "known", 1);
+      bumpDaily(today, "completed", 1);
       if (isNew) bumpDaily(today, "new", 1);
       else bumpDaily(today, "review", 1);
     } else {
@@ -309,12 +311,15 @@
       else if (p.interval === 1) p.interval = 3;
       else p.interval = Math.round(p.interval * p.ease);
       p.reps += 1;
+      p.knownCount = (p.knownCount || 0) + 1;
       p.status = p.interval >= 21 ? "mastered" : "review";
       const due = new Date();
       due.setDate(due.getDate() + p.interval);
       p.due = todayKey(due);
       p.lastReview = today;
+      p.reviewsToday += 1;
       bumpDaily(today, "known", 1);
+      bumpDaily(today, "completed", 1);
       if (isNew) bumpDaily(today, "new", 1);
       else bumpDaily(today, "review", 1);
     }

@@ -73,35 +73,38 @@ async function main() {
   check('卡片显示单词', word && word !== '—', word);
   await page.screenshot({ path: path.join(OUT, '03-session-word.png') });
 
-  // reveal
+  // reveal optional
   await page.click('#btnReveal');
   await page.waitForTimeout(200);
   const meaning = await page.locator('#cardMeaning').innerText();
   check('显示释义', meaning.length > 0, meaning.slice(0, 30));
   await page.screenshot({ path: path.join(OUT, '04-session-meaning.png') });
 
-  // grade good
+  // grade good then confirm (new flow)
   await page.click('#btnGood');
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(150);
+  check('点认识后出现继续', await page.locator('#confirmRow').isVisible());
+  await page.click('#btnConfirm');
+  await page.waitForTimeout(250);
   const word2 = await page.locator('#cardWord').innerText();
   check('进入下一词', word2 && word2 !== '—', word2);
 
-  // grade again
+  // grade again then confirm
   await page.click('#btnAgain');
-  await page.waitForTimeout(300);
-  const badge = await page.locator('#priorityBadge').isVisible();
-  check('不认识后可继续', true, `priorityBadgeAfterAgain later`);
+  await page.waitForTimeout(120);
+  await page.click('#btnConfirm');
+  await page.waitForTimeout(250);
+  check('不认识后可继续', true, 'requeued');
 
-  // do a few more
+  // do a few more with new flow
   for (let i = 0; i < 5; i++) {
     if (!(await page.locator('#session').isVisible())) break;
     if (await page.locator('#sessionDone').isVisible()) break;
-    const revealed = !(await page.locator('#cardBack').evaluate(el => el.classList.contains('hidden')));
-    if (!revealed) await page.click('#btnReveal');
-    await page.waitForTimeout(100);
     if (i % 2 === 0) await page.click('#btnGood');
     else await page.click('#btnAgain');
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(100);
+    await page.click('#btnConfirm');
+    await page.waitForTimeout(150);
   }
   await page.screenshot({ path: path.join(OUT, '05-session-progress.png') });
 
@@ -111,9 +114,9 @@ async function main() {
   const homeAgain = await page.locator('#view-home').evaluate(el => el.classList.contains('active'));
   check('退出复习回到今日', homeAgain);
 
-  // today done increased
+  // today done only counts good/hard
   const done2 = await page.locator('#todayDone').innerText();
-  check('今日进度有更新', Number(done2) > Number(todayDone), `${todayDone} -> ${done2}`);
+  check('今日进度有更新且不膨胀', Number(done2) > Number(todayDone) && Number(done2) <= 20, `${todayDone} -> ${done2}`);
 
   // Stats
   await page.click('.tab[data-tab="stats"]');

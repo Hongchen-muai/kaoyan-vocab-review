@@ -3,10 +3,16 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-  let queue = [];
-  let qIndex = 0;
+  let mainQueue = [];
+  let relearnQueue = [];
+  let sessionTotal = 0;
+  let completedCount = 0;
+  let currentCard = null;
+  let pendingGrade = null;
   let revealed = false;
-  let sessionStats = { again: 0, hard: 0, good: 0 };
+  let sessionStats = { again: 0, hard: 0, good: 0, unresolved: 0 };
+  let againStreak = {};
+  const MAX_AGAIN = 3;
   let currentFilter = "all";
   let currentSort = "unknown";
   let searchQ = "";
@@ -39,7 +45,9 @@
     $("#dueCount").textContent = plan.queue.length;
     $("#newCount").textContent = Math.min(plan.newCount, dailyNewLimit);
     $("#totalWords").textContent = st.total;
-    Charts.setRing($("#todayRing"), Math.min(1, done / Math.max(1, dailyReviewLimit)));
+    // 环形进度：相对「今日实际待办+已完成」，避免分母被每日上限撑大
+    const ringTarget = Math.max(1, Math.min(dailyReviewLimit, plan.queue.length + done));
+    Charts.setRing($("#todayRing"), Math.min(1, done / ringTarget));
 
     const btn = $("#btnStartReview");
     if (plan.queue.length === 0) {
@@ -206,17 +214,21 @@
   /* ---------- 复习会话 ---------- */
   function startSession() {
     const plan = Store.buildQueue();
-    queue = plan.queue;
-    qIndex = 0;
+    mainQueue = plan.queue.slice();
+    relearnQueue = [];
+    sessionTotal = mainQueue.length;
+    completedCount = 0;
+    pendingGrade = null;
     revealed = false;
-    sessionStats = { again: 0, hard: 0, good: 0 };
-    if (!queue.length) {
+    currentCard = null;
+    sessionStats = { again: 0, hard: 0, good: 0, unresolved: 0 };
+    againStreak = {};
+    if (!mainQueue.length) {
       toast("当前没有可复习的单词");
       return;
     }
     $("#session").classList.remove("hidden");
     $("#sessionDone").classList.add("hidden");
-    $("#sessionBody") && $("#sessionBody").classList.remove("hidden");
     $(".session-body").classList.remove("hidden");
     $(".session-top").classList.remove("hidden");
     showCard();
@@ -224,36 +236,68 @@
 
   function endSession() {
     $("#session").classList.add("hidden");
+    pendingGrade = null;
+    currentCard = null;
     if ("speechSynthesis" in window) window.speechSynthesis.cancel();
     renderHome();
   }
 
+  function updateProgressUI() {
+    $("#sessionCount").textContent = `${completedCount}/${sessionTotal}`;
+    $("#sessionBar").style.width = `${
+      sessionTotal ? Math.min(100, (completedCount / sessionTotal) * 100) : 0
+    }%`;
+  }
+
+  function pullNextCard() {
+    if (relearnQueue.length) return relearnQueue.shift();
+    if (mainQueue.length) return mainQueue.shift();
+    return null;
+  }
+
   function showCard() {
-    if (qIndex >= queue.length) {
+    currentCard = pullNextCard();
+    if (!currentCard) {
       finishSession();
       return;
     }
-    const w = queue[qIndex];
+    // 从 Store 刷新，避免队列里的旧 unknownCount
+    const fresh = Store.listWords().find((w) => w.id === currentCard.id);
+    if (fresh) currentCard = { ...fresh, kind: currentCard.kind || fresh.kind };
+
+    pendingGrade = null;
     revealed = false;
-    $("#cardWord").textContent = w.display;
-    const forms = (w.forms || []).filter((f) => f.toLowerCase() !== w.display.toLowerCase());
+    $("#cardWord").textContent = currentCard.display;
+    const forms = (currentCard.forms || []).filter(
+      (f) => f.toLowerCase() !== currentCard.display.toLowerCase()
+    );
     $("#cardForms").textContent = forms.length ? `文中形式：${forms.join(" · ")}` : "";
-    $("#cardPos").textContent = w.pos || "";
-    $("#cardMeaning").textContent = w.meaning || "（暂无释义）";
-    $("#cardNote").textContent = w.note || "";
-    $("#cardSources").textContent = (w.sources || []).length ? `来源：${(w.sources || []).join("、")}` : "";
-    $("#cardMeta").textContent = `历史不认识 ${w.unknownCount} 次 · 已认识 ${w.progress.knownCount || 0} 次`;
+    $("#cardPos").textContent = currentCard.pos || "";
+    $("#cardMeaning").textContent = currentCard.meaning || "（暂无释义）";
+    $("#cardNote").textContent = currentCard.note || "";
+    $("#cardSources").textContent = (currentCard.sources || []).length
+      ? `来源：${(currentCard.sources || []).join("、")}`
+      : "";
+    $("#cardMeta").textContent = `历史不认识 ${currentCard.unknownCount} 次 · 已认识 ${
+      currentCard.knownCount || 0
+    } 次`;
     $("#cardBack").classList.add("hidden");
     $("#btnReveal").classList.remove("hidden");
-    $("#btnHard").disabled = true;
-    $("#btnGood").disabled = true;
 
-    const hot = w.unknownCount >= 2 || w.kind === "relearn";
+    const hot = currentCard.unknownCount >= 2 || currentCard.kind === "relearn";
     $("#priorityBadge").classList.toggle("hidden", !hot);
-    $("#priorityBadge").textContent = w.kind === "relearn" ? "新文档再次出现 · 继承历史权重" : "高频重点";
+    $("#priorityBadge").textContent =
+      currentCard.kind === "relearn" ? "本轮重练" : currentCard.kind === "new" ? "新词" : "高频重点";
 
-    $("#sessionCount").textContent = `${qIndex + 1}/${queue.length}`;
-    $("#sessionBar").style.width = `${(qIndex / queue.length) * 100}%`;
+    $("#gradeRow").classList.remove("hidden");
+    $("#confirmRow").classList.add("hidden");
+    $("#btnAgain").disabled = false;
+    $("#btnHard").disabled = false;
+    $("#btnGood").disabled = false;
+    $("#btnDowngrade").classList.add("hidden");
+    $("#sessionTip").textContent = "可直接作答，再核对释义；答错可改判";
+
+    updateProgressUI();
 
     if (Store.getSettings().autoSpeak) {
       setTimeout(() => speakCurrent(), 120);
@@ -261,11 +305,10 @@
   }
 
   function speakCurrent() {
-    const w = queue[qIndex];
-    if (!w) return;
+    if (!currentCard) return;
     const btn = $("#btnSpeak");
     btn.classList.add("playing");
-    TTS.speak(w.display, () => btn.classList.remove("playing"));
+    TTS.speak(currentCard.display, () => btn.classList.remove("playing"));
   }
 
   function reveal() {
@@ -273,22 +316,59 @@
     revealed = true;
     $("#cardBack").classList.remove("hidden");
     $("#btnReveal").classList.add("hidden");
-    $("#btnHard").disabled = false;
-    $("#btnGood").disabled = false;
   }
 
-  function gradeCurrent(rating) {
-    const w = queue[qIndex];
-    if (!w) return;
-    if (rating !== "again" && !revealed) return;
-    Store.grade(w.id, rating);
-    sessionStats[rating] += 1;
-    // again：当天会再入队一次（简化：立刻插回末尾一次）
+  /** 第一步：用户直接选认识/模糊/不认识，随后展示释义供核对 */
+  function chooseGrade(rating) {
+    if (!currentCard || pendingGrade) return;
+    pendingGrade = rating;
+    reveal();
+    $("#gradeRow").classList.add("hidden");
+    $("#confirmRow").classList.remove("hidden");
     if (rating === "again") {
-      queue.push({ ...w, kind: "relearn" });
+      $("#btnDowngrade").classList.add("hidden");
+      $("#btnConfirm").textContent = "继续（稍后重练）";
+      $("#sessionTip").textContent = "已记为不认识，稍后会再出现；进度只计「认识/模糊」";
+    } else {
+      $("#btnDowngrade").classList.remove("hidden");
+      $("#btnConfirm").textContent = "继续";
+      $("#sessionTip").textContent =
+        rating === "good" ? "已选「认识」，若其实不会请点「改判不认识」" : "已选「模糊」，若其实不会请点「改判不认识」";
     }
-    qIndex += 1;
+    $("#btnConfirm").focus();
+  }
+
+  /** 确认结算：只在这里写入 Store，避免改判时重复计分 */
+  function settleCard(rating) {
+    if (!currentCard || !rating) return;
+    const id = currentCard.id;
+    Store.grade(id, rating);
+
+    if (rating === "again") {
+      sessionStats.again += 1;
+      againStreak[id] = (againStreak[id] || 0) + 1;
+      if (againStreak[id] < MAX_AGAIN) {
+        relearnQueue.push({ ...currentCard, kind: "relearn" });
+      } else {
+        // 同一轮最多重练 MAX_AGAIN 次，避免无限膨胀；不计入完成
+        sessionStats.unresolved += 1;
+      }
+    } else {
+      sessionStats[rating] += 1;
+      completedCount += 1;
+    }
+
+    pendingGrade = null;
+    updateProgressUI();
     showCard();
+  }
+
+  function confirmPending() {
+    settleCard(pendingGrade);
+  }
+
+  function downgradePending() {
+    settleCard("again");
   }
 
   function finishSession() {
@@ -296,7 +376,13 @@
     $(".session-top").classList.add("hidden");
     $("#sessionDone").classList.remove("hidden");
     $("#sessionBar").style.width = "100%";
-    $("#doneSummary").textContent = `认识 ${sessionStats.good} · 模糊 ${sessionStats.hard} · 不认识 ${sessionStats.again}`;
+    const unresolved = sessionStats.unresolved
+      ? ` · 未掌握出队 ${sessionStats.unresolved}`
+      : "";
+    $("#doneSummary").textContent =
+      `完成 ${completedCount}/${sessionTotal}（仅认识/模糊计入）` +
+      ` · 认识 ${sessionStats.good} · 模糊 ${sessionStats.hard}` +
+      ` · 不认识操作 ${sessionStats.again} 次${unresolved}`;
   }
 
   /* ---------- 设置与导入 ---------- */
@@ -419,28 +505,52 @@
       endSession();
       goto("home");
     });
-    $("#btnReveal").addEventListener("click", reveal);
-    $("#wordCard").addEventListener("click", (e) => {
-      if (e.target.closest(".speak-btn")) return;
+    $("#btnReveal").addEventListener("click", (e) => {
+      e.stopPropagation();
       reveal();
     });
+    $("#wordCard").addEventListener("click", (e) => {
+      if (e.target.closest(".speak-btn") || e.target.closest("button")) return;
+      // 先作答后可查看；未作答时点卡片只展开释义，不强制
+      if (!pendingGrade) reveal();
+    });
     $("#btnSpeak").addEventListener("click", speakCurrent);
-    $("#btnAgain").addEventListener("click", () => gradeCurrent("again"));
-    $("#btnHard").addEventListener("click", () => gradeCurrent("hard"));
-    $("#btnGood").addEventListener("click", () => gradeCurrent("good"));
+    $("#btnAgain").addEventListener("click", () => chooseGrade("again"));
+    $("#btnHard").addEventListener("click", () => chooseGrade("hard"));
+    $("#btnGood").addEventListener("click", () => chooseGrade("good"));
+    $("#btnConfirm").addEventListener("click", confirmPending);
+    $("#btnDowngrade").addEventListener("click", downgradePending);
 
-    // 键盘
+    // 键盘：1/2/3 作答，Enter 确认，空格看释义/确认
     document.addEventListener("keydown", (e) => {
       if ($("#session").classList.contains("hidden")) return;
-      if (e.key === " " || e.key === "Enter") {
-        e.preventDefault();
-        if (!revealed) reveal();
-        else gradeCurrent("good");
+      if ($("#sessionDone") && !$("#sessionDone").classList.contains("hidden")) {
+        if (e.key === "Enter" || e.key === "Escape") {
+          e.preventDefault();
+          endSession();
+        }
+        return;
       }
-      if (e.key === "1") gradeCurrent("again");
-      if (e.key === "2" && revealed) gradeCurrent("hard");
-      if (e.key === "3" && revealed) gradeCurrent("good");
-      if (e.key === "Escape") endSession();
+      if (e.key === "Escape") {
+        endSession();
+        return;
+      }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (pendingGrade) confirmPending();
+        else if (!revealed) reveal();
+        return;
+      }
+      if (e.key === " ") {
+        e.preventDefault();
+        if (pendingGrade) confirmPending();
+        else reveal();
+        return;
+      }
+      if (pendingGrade) return;
+      if (e.key === "1") chooseGrade("again");
+      if (e.key === "2") chooseGrade("hard");
+      if (e.key === "3") chooseGrade("good");
     });
 
     $("#searchInput").addEventListener("input", (e) => {
